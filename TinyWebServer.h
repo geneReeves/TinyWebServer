@@ -7,10 +7,28 @@
 //
 // TinyWebServer for Arduino.
 
+// Updated: 04-11-2012 forked from https://github.com/ovidiucp/TinyWebServer
+//			to subclass it from PString instead of Print to allow buffered 
+//			writes (as well as the format functions).  Write data to server
+//			as normal and when your ready for the server to send the data 
+//			out the wire, call the flush() function.
+//
+//			PString adds two parameters to the constructor, a pointer to a 
+//			preallocated buffer and the size of the buffer.
+//
+//			PLEASE NOTE: When using the format, formatP and printP functions,
+//			the buffer is not automatically flushed when it becomes full as
+//			it is when using the normal print and write functions, so care
+//			must be taken to ensure that the buffer is flushed before it
+//			becomes full or chacters will be dropped.
+//
+//			GgR  <gene_@_brickhse.com>
+
 #ifndef __WEB_SERVER_H__
 #define __WEB_SERVER_H__
 
-#include <Print.h>
+//#include <Print.h>
+#include <PString.h>
 
 class SdFile;
 class TinyWebServer;
@@ -33,7 +51,7 @@ namespace TinyWebPutHandler {
   extern HandlerFn put_handler_fn;
 };
 
-class TinyWebServer : public Print {
+class TinyWebServer : public PString {
 public:
   // An HTTP path handler. The handler function takes the path it
   // registered for as argument, and the Client object to handle the
@@ -68,7 +86,7 @@ public:
   // interested in.
   //
   // NOTE: Make sure the header names are all lowercase.
-  TinyWebServer(PathHandler handlers[], const char** headers);
+  TinyWebServer(PathHandler handlers[], const char** headers, char *buf=NULL, size_t size=0);
 
   // Call this method to start the HTTP server
   void begin();
@@ -138,10 +156,26 @@ public:
 
   // These methods write directly in the response stream of the
   // connected client
+  /* Remeved by GgR to support PString 04-11-2012
+  virtual size_t write(uint8_t c);
+  virtual size_t write(const char *str);
+  virtual size_t write(const uint8_t *buffer, size_t size);
+  */
+  
+  /* New code to support PString added 04-11-2012 */
+  // Call this when your read to put data on the wire.
+  // Flush Buffer
+  virtual void flush() {m_client.print(_buf); clear_buffer();}
+  // clears Buffer
+  void clear_buffer();
+  
+  // New write functions
   virtual size_t write(uint8_t c);
   virtual size_t write(const char *str);
   virtual size_t write(const uint8_t *buffer, size_t size);
 
+  /* end of new code */
+  
   // Some methods used for testing purposes
 
   // Returns true if the HTTP request processing should be stopped.

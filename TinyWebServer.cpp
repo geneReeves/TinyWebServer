@@ -69,8 +69,9 @@ void *malloc_check(size_t size) {
 static const TinyWebServer::MimeType text_html_content_type = 4;
 
 TinyWebServer::TinyWebServer(PathHandler handlers[],
-			     const char** headers)
-  : handlers_(handlers),
+			     const char** headers, char *buf, size_t size)
+  : PString(buf, size),
+	handlers_(handlers),
     server_(EthernetServer(80)),
     path_(NULL),
     request_type_(UNKNOWN_REQUEST),
@@ -92,8 +93,42 @@ TinyWebServer::TinyWebServer(PathHandler handlers[],
 }
 
 void TinyWebServer::begin() {
+  PString::begin();
   server_.begin();
 }
+
+// New code for supporting PString
+// Flush Send Buffer
+void TinyWebServer::flush() {
+	m_client.print(_buf);
+	PString::begin();
+	}
+
+// Clear Send Buffer
+void TinyWebServer::clear_buffer() {
+	PString::begin();
+	}
+	
+size_t TinyWebServer::write(const char *str) {
+		return write((uint8_t *)str, (size_t)strlen(str));
+	}
+	
+size_t TinyWebServer::write(const uint8_t *buffer, size_t size) {
+		size_t ret = 0;
+		for (uint16_t i = 0; i <= size; i++)
+			ret += write(buffer[i]);
+		return ret;
+	}
+	
+size_t TinyWebServer::write(uint8_t c){
+		if (_size)
+		{
+			if (!(_size - (_cur - _buf)))
+				flush(); // flush if buffer is full
+			return PString::write(c);
+		}
+		return 0;
+	}
 
 // Process headers.
 boolean TinyWebServer::process_headers() {
