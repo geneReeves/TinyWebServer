@@ -86,7 +86,7 @@ public:
   // interested in.
   //
   // NOTE: Make sure the header names are all lowercase.
-  TinyWebServer(PathHandler handlers[], const char** headers, char *buf=NULL, size_t size=0);
+  TinyWebServer(PathHandler handlers[], const char** headers, uint16_t port=80, char *buf=NULL, size_t size=0);
 
   // Call this method to start the HTTP server
   void begin();
@@ -97,13 +97,19 @@ public:
   //
   // Call this method from the main loop() function to have the Web
   // server handle incoming requests.
-  void process();
+  // call with Client saved from previous call to use
+  // keep-alive processing
+  void process(EthernetClient *activeClient);
+  boolean process();
+  
+  // returns EtrhernetServer
+  EthernetServer *get_server() {return &server_;}
 
   // Sends the HTTP status code to the connect HTTP client.
-  void send_error_code(int code) {
-    send_error_code(client_, code);
+  void send_error_code(int code, bool bSendEnd = true) {
+    send_error_code(client_, code, bSendEnd);
   }
-  static void send_error_code(Client& client, int code);
+  static void send_error_code(Client& client, int code, bool bSendEnd = true);
 
   void send_content_type(MimeType mime_type);
   void send_content_type(const char* content_type);
@@ -118,6 +124,7 @@ public:
   const char* get_path();
   const HttpRequestType get_type();
   const char* get_header_value(const char* header);
+  const char* get_header_value_P(PGM_P pHeader);
   EthernetClient& get_client() { return client_; }
 
   // Processes the HTTP headers and assigns values to the requested
@@ -152,7 +159,7 @@ public:
   //
   // This is mainly an optimization to reuse the internal static
   // buffer used by this class, which saves us some RAM.
-  void send_file(SdFile& file);
+  size_t send_file(SdFile& file);
 
   // These methods write directly in the response stream of the
   // connected client
@@ -165,7 +172,7 @@ public:
   /* New code to support PString added 04-11-2012 */
   // Call this when your read to put data on the wire.
   // Flush Buffer
-  virtual void flush() {m_client.print(_buf); clear_buffer();}
+  virtual void flush();
   // clears Buffer
   void clear_buffer();
   

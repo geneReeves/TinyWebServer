@@ -33,12 +33,22 @@ extern "C" {
 
 #include <Ethernet.h>
 #include <Flash.h>
-#include <SD.h>
+#ifdef USE_SD
+  #include <SD.h>
+#else
+  #include <SdFat.h>
+#endif
 
 #include "TinyWebServer.h"
 
+#define USE_LARGE_BUFFER
+
 // Temporary buffer.
+#ifdef USE_LARGE_BUFFER
+static char buffer[1024];
+#else
 static char buffer[160];
+#endif
 
 FLASH_STRING(mime_types,
   "HTM*text/html|"
@@ -46,7 +56,7 @@ FLASH_STRING(mime_types,
   "CSS*text/css|"
   "XML*text/xml|"
   "JS*text/javascript|"
-
+  "JSON*application/json|"
   "GIF*image/gif|"
   "JPG*image/jpeg|"
   "PNG*image/png|"
@@ -69,10 +79,10 @@ void *malloc_check(size_t size) {
 static const TinyWebServer::MimeType text_html_content_type = 4;
 
 TinyWebServer::TinyWebServer(PathHandler handlers[],
-			     const char** headers, char *buf, size_t size)
+			     const char** headers, uint16_t port, char *buf, size_t size)
   : PString(buf, size),
 	handlers_(handlers),
-    server_(EthernetServer(80)),
+    server_(EthernetServer(port)),
     path_(NULL),
     request_type_(UNKNOWN_REQUEST),
     client_(EthernetClient(255)) {
@@ -100,7 +110,8 @@ void TinyWebServer::begin() {
 // New code for supporting PString
 // Flush Send Buffer
 void TinyWebServer::flush() {
-	m_client.print(_buf);
+	if (length() > 0)
+		client_.print(_buf);
 	PString::begin();
 	}
 
@@ -254,8 +265,11 @@ boolean TinyWebServer::process_headers() {
   return true;
 }
 
-void TinyWebServer::process() {
-  client_ = server_.available();
+void TinyWebServer::process(EthernetClient *activeClient) {
+  if(activeClient==NULL)
+    client_ = server_.available();
+  else
+    client_ = (*activeClient);
   if (!client_.connected() || !client_.available()) {
     return;
   }
@@ -303,6 +317,17 @@ void TinyWebServer::process() {
     if (handlers_[i].path[len - 1] == '*') {
       regex_match = !strncmp(path_, handlers_[i].path, len - 1);
     }
+    char *ext = strchr(handlers_[i].path, '.');
+    if (ext) {
+      if (ext[-1]=='*') {
+        uint8_t len2 = ext - handlers_[i].path - 2;
+        if (strncmp(path_, handlers_[i].path, len2)==0) {
+          char *ext2 = strchr(path_ + len2 + 1, '.');
+          exact_match = !strcmp(ext2, ext);
+          regex_match = !strncmp(ext2, ext, strlen(ext)-1);
+        }
+      }
+    }
     if ((exact_match || regex_match)
 	&& (handlers_[i].type == ANY || handlers_[i].type == request_type_)) {
       found = true;
@@ -323,6 +348,14 @@ void TinyWebServer::process() {
 
   free(path_);
   free(request_type_str);
+}
+
+boolean TinyWebServer::process() {
+    client_ = server_.available();
+    if (!client_)
+      return false;
+    process(&client_);
+    return true;
 }
 
 boolean TinyWebServer::is_requested_header(const char** header) {
@@ -361,16 +394,20 @@ boolean TinyWebServer::assign_header_value(const char* header, char* value) {
 
 FLASH_STRING(content_type_msg, "Content-Type: ");
 
-void TinyWebServer::send_error_code(Client& client, int code) {
+void TinyWebServer::send_error_code(Client& client, int code, bool bSendEnd) {
 #if DEBUG
   Serial << F("TWS:Returning ");
   Serial.println(code, DEC);
 #endif
   client << F("HTTP/1.1 ");
   client.print(code, DEC);
-  client << F(" OK\r\n");
-  if (code != 200) {
-    end_headers(client);
+  if (code == 200) {
+    client << F(" OK\r\n");
+    if (bSendEnd) 
+
+      end_headers(client);
+  } else {
+    client << F(" "); // wait for user to send rest.
   }
 }
 
@@ -409,6 +446,17 @@ const char* TinyWebServer::get_header_value(const char* name) {
   return NULL;
 }
 
+const char* TinyWebServer::get_header_value_P(PGM_P pName) {
+  if (!headers_) {
+    return NULL;
+  }
+  for (int i = 0; headers_[i].header; i++) {
+    if (!strcmp_P(headers_[i].header, pName)) {
+      return headers_[i].value;
+    }
+  }
+  return NULL;
+}
 char* TinyWebServer::decode_url_encoded(const char* s) {
   if (!s) {
     return NULL;
@@ -519,27 +567,30 @@ TinyWebServer::MimeType TinyWebServer::get_mime_type_from_filename(
   return r;
 }
 
-void TinyWebServer::send_file(SdFile& file) {
+size_t TinyWebServer::send_file(SdFile& file) {
   size_t size;
-  while ((size = file.read(buffer, sizeof(buffer))) > 0) {
+  size_t ret = 0;
+  size_t chunckSize = capacity()-1;
+  while ((size = file.read(_buf, chunkSize)) > 0) {
     if (!client_.connected()) {
       break;
     }
-    write((uint8_t*)buffer, size);
+    ret += write((uint8_t*)_buf, size);
   }
+  return ret;
 }
 
-size_t TinyWebServer::write(uint8_t c) {
-  client_.write(c);
-}
+//size_t TinyWebServer::write(uint8_t c) {
+//  client_.write(c);
+//}
 
-size_t TinyWebServer::write(const char *str) {
-  client_.write(str);
-}
+//size_t TinyWebServer::write(const char *str) {
+//  client_.write(str);
+//}
 
-size_t TinyWebServer::write(const uint8_t *buffer, size_t size) {
-  client_.write(buffer, size);
-}
+//size_t TinyWebServer::write(const uint8_t *buffer, size_t size) {
+//  client_.write(buffer, size);
+//}
 
 boolean TinyWebServer::read_next_char(Client& client, uint8_t* ch) {
   if (!client.available()) {
@@ -651,6 +702,11 @@ boolean put_handler(TinyWebServer& web_server) {
   for (i = 0; i < length && client.connected();) {
     int16_t size = read_chars(web_server, client, (uint8_t*)buffer, 64);
     if (!size) {
+      // Exit if the upload takes more than 30 seconds
+      web_server.send_error_code(100,false);
+      web_server << F("continue\r\n");
+      web_server.end_headers();
+      
       if (watchdog_start) {
         if (millis() - start_time > 30000) {
           // Exit if there has been zero data from connected client
