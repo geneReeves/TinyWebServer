@@ -1,3 +1,7 @@
+UPDATE 4-11-2012: this is test code to test moving the class over to PString from Print
+                    see the TinyWebServer.h for details.  GgR
+                    
+                    
 Arduino TinyWebServer
 
 A small web server for Arduino.
